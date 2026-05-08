@@ -1,0 +1,64 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cartoonish Seestar S50 -->
+
+    <!-- Shadow for depth -->
+    <path
+        android:fillColor="#000000"
+        android:fillAlpha="0.2"
+        android:pathData="M38,28 h40 a6,6 0 0 1 6,6 v52 a6,6 0 0 1 -6,6 h-40 a6,6 0 0 1 -6,-6 v-52 a6,6 0 0 1 6,-6 Z" />
+
+    <!-- Main Body -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M34,24 h40 a8,8 0 0 1 8,8 v52 a8,8 0 0 1 -8,8 h-40 a8,8 0 0 1 -8,-8 v-52 a8,8 0 0 1 8,-8 Z" />
+
+    <!-- The "Slot" where the arm is -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M48,32 h12 v44 h-12 Z" />
+
+    <!-- The Telescope Lens (Top of arm) -->
+    <group android:translateX="54" android:translateY="42">
+        <!-- Lens Outer -->
+        <path
+            android:fillColor="#4FC3F7"
+            android:pathData="M0,0 m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0" />
+        <!-- Lens Inner -->
+        <path
+            android:fillColor="#0288D1"
+            android:pathData="M0,0 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+        <!-- Shine -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.6"
+            android:pathData="M-6,-6 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    </group>
+
+    <!-- Power Button (ZWO Red) -->
+    <path
+        android:fillColor="#F44336"
+        android:pathData="M54,80 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Tripod Mount -->
+    <path
+        android:fillColor="#424242"
+        android:pathData="M44,92 h20 v3 h-20 Z" />
+
+    <!-- Tripod Legs -->
+    <path
+        android:strokeColor="#424242"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M48,95 L40,104 M60,95 L68,104 M54,95 L54,106" />
+
+    <!-- Brand Accent (Star) -->
+    <path
+        android:fillColor="#FFEB3B"
+        android:pathData="M70,30 l1.5,3.5 l3.5,0.5 l-2.5,2.5 l0.6,3.5 l-3.1,-1.6 l-3.1,1.6 l0.6,-3.5 l-2.5,-2.5 l3.5,-0.5 Z" />
+
+</vector>

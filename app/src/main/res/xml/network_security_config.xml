@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Allow cleartext for SeeStar's default IP and common local network range -->
+        <domain includeSubdomains="true">192.168.1.1</domain>
+        <domain includeSubdomains="true">192.168.1.2</domain>
+        <!-- Catch-all for other common local ranges if needed -->
+        <domain includeSubdomains="true">10.0.0.1</domain>
+    </domain-config>
+    <!-- Fallback to allow all cleartext for now to ensure connectivity to any user-defined IP -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
