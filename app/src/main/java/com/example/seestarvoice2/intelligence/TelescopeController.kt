@@ -3,36 +3,58 @@ package com.example.seestarvoice2.intelligence
 import okhttp3.*
 import java.io.IOException
 
-class TelescopeController(private val client: OkHttpClient = OkHttpClient()) {
+class TelescopeController(
+    private val client: OkHttpClient = OkHttpClient(),
+    var port: Int = 4030,
+    var onLog: ((String) -> Unit)? = null
+) {
+
+    private var transactionCounter = 0.toLong()
+    private val clientTransactionID: Long get() = ++transactionCounter
+
+    private var randomClientID: Long = 0
+
+    private val clientID: Long
+        get() {
+            if (randomClientID == 0.toLong()) {
+                randomClientID = System.currentTimeMillis()
+            }
+            return randomClientID
+        }
 
     fun sendCommand(ip: String, endpoint: String, params: Map<String, String>, onResponse: (String) -> Unit, onError: (String) -> Unit) {
-        // Standard ASCOM Alpaca port is 5555
-        val url = "http://$ip:5555/api/v1/$endpoint"
+        // Use the configured port instead of hardcoded 5555
+        val url = "http://$ip:$port/api/v1/$endpoint"
         
         val formBodyBuilder = FormBody.Builder()
         params.forEach { (key, value) ->
             formBodyBuilder.add(key, value)
         }
-        formBodyBuilder.add("ClientID", "1")
-        formBodyBuilder.add("ClientTransactionID", (System.currentTimeMillis() % 1000000).toString())
+        formBodyBuilder.add("ClientID", clientID.toString())
+        formBodyBuilder.add("ClientTransactionID", clientTransactionID.toString())
 
         val request = Request.Builder()
             .url(url)
             .put(formBodyBuilder.build())
             .build()
 
-        android.util.Log.d("TelescopeController", "Sending Alpaca PUT to $url with $params")
+        val logMsg = "Sending Alpaca PUT to $url with $params"
+        android.util.Log.d("TelescopeController", logMsg)
+        onLog?.invoke(logMsg)
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 val errorMsg = "Network error connecting to SeeStar at $ip: ${e.message}"
                 android.util.Log.e("TelescopeController", errorMsg)
+                onLog?.invoke("ERROR: $errorMsg")
                 onError(errorMsg)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body?.string() ?: ""
-                android.util.Log.d("TelescopeController", "Response [${response.code}]: $body")
+                val logResp = "Response [${response.code}]: $body"
+                android.util.Log.d("TelescopeController", logResp)
+                onLog?.invoke(logResp)
                 if (response.isSuccessful) {
                     onResponse(body)
                 } else {

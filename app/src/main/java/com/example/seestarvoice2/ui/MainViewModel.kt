@@ -39,11 +39,17 @@ class MainViewModel(
     
     var requireWakeWord by mutableStateOf(true)
         private set
+
+    var debugLogging by mutableStateOf(true)
+        private set
     
-    var currentLlmEngine by mutableStateOf("gemma-2b-it-cpu-int4.bin")
+    var currentLlmEngine by mutableStateOf("gemma-4-E2B-it.litertlm")
         private set
 
     var seestarIp by mutableStateOf("10.0.0.1")
+        private set
+
+    var telescopePort by mutableStateOf(4030)
         private set
 
     var bortleScale by mutableStateOf(5)
@@ -61,7 +67,10 @@ class MainViewModel(
     private var intentProcessor: IntentProcessor? = null
     private val dateFormatter = SimpleDateFormat("yyyy-MMM-dd HH:mm:ss", Locale.getDefault())
     private val db = AppDatabase.getDatabase(application)
-    private val telescopeController = TelescopeController()
+    private val telescopeController = TelescopeController(
+        port = 4030,
+        onLog = { if (debugLogging) addLog("HTTP: $it") }
+    )
 
     private val voiceRecognizer = VoiceRecognizer(
         context = application,
@@ -73,8 +82,11 @@ class MainViewModel(
         // Load initial settings synchronously for initialization
         runBlocking {
             requireWakeWord = settingsManager.requireWakeWord.first()
+            debugLogging = settingsManager.debugLogging.first()
             currentLlmEngine = settingsManager.llmEngine.first()
             seestarIp = settingsManager.seestarIp.first()
+            telescopePort = settingsManager.telescopePort.first()
+            telescopeController.port = telescopePort
             bortleScale = settingsManager.bortleScale.first()
         }
         
@@ -83,7 +95,16 @@ class MainViewModel(
             settingsManager.requireWakeWord.collect { requireWakeWord = it }
         }
         viewModelScope.launch {
+            settingsManager.debugLogging.collect { debugLogging = it }
+        }
+        viewModelScope.launch {
             settingsManager.seestarIp.collect { seestarIp = it }
+        }
+        viewModelScope.launch {
+            settingsManager.telescopePort.collect { 
+                telescopePort = it
+                telescopeController.port = it
+            }
         }
         viewModelScope.launch {
             settingsManager.bortleScale.collect { bortleScale = it }
@@ -99,9 +120,22 @@ class MainViewModel(
         }
     }
 
+    fun updateDebugLogging(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setDebugLogging(enabled)
+        }
+    }
+
     fun updateSeestarIp(ip: String) {
         viewModelScope.launch {
             settingsManager.setSeestarIp(ip)
+        }
+    }
+
+    fun updateTelescopePort(port: String) {
+        val portInt = port.toIntOrNull() ?: 4030
+        viewModelScope.launch {
+            settingsManager.setTelescopePort(portInt)
         }
     }
 

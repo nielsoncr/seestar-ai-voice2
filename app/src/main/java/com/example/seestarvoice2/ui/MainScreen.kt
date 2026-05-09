@@ -192,6 +192,22 @@ fun SettingsDialog(
                     Text(text = "Require SeeStar wake word", style = MaterialTheme.typography.bodyLarge)
                 }
 
+                // Debug Logging Option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.updateDebugLogging(!viewModel.debugLogging) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = viewModel.debugLogging,
+                        onCheckedChange = { viewModel.updateDebugLogging(it) }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Debug Logging", style = MaterialTheme.typography.bodyLarge)
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // SeeStar IP Option
@@ -202,6 +218,21 @@ fun SettingsDialog(
                         value = viewModel.seestarIp,
                         onValueChange = { viewModel.updateSeestarIp(it) },
                         placeholder = { Text("10.0.0.1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Telescope Port Option
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Telescope Port", style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = viewModel.telescopePort.toString(),
+                        onValueChange = { viewModel.updateTelescopePort(it) },
+                        placeholder = { Text("4030") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -251,7 +282,7 @@ fun SettingsDialog(
                             onDismissRequest = { expanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("gemma-2b-it-cpu-int4.bin") },
+                                text = { Text("gemma-4-E2B-it.litertlm") },
                                 onClick = { 
                                     expanded = false 
                                 }
@@ -261,7 +292,12 @@ fun SettingsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                androidx.compose.material3.TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .width(120.dp) // Approximately double the default width of an IconButton
+                ) {
                     Text("Close", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }

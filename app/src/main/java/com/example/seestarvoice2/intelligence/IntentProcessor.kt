@@ -1,7 +1,9 @@
 package com.example.seestarvoice2.intelligence
 
 import android.content.Context
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Backend
 import java.io.File
 import android.util.Log
 
@@ -24,16 +26,23 @@ sealed class TelescopeIntent {
 }
 
 class IntentProcessor(private val context: Context, private val modelPath: String) {
-    private var llmInference: LlmInference? = null
+    private var engine: Engine? = null
 
     init {
         val modelFile = File(modelPath)
         if (modelFile.exists()) {
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelPath)
-                .setMaxTokens(128)
-                .build()
-            llmInference = LlmInference.createFromOptions(context, options)
+            val config = EngineConfig(
+                modelPath = modelPath,
+                maxNumTokens = 128,
+                backend = Backend.CPU(),
+                cacheDir = context.cacheDir.path
+            )
+            engine = Engine(config)
+            try {
+                engine?.initialize()
+            } catch (e: Exception) {
+                Log.e("IntentProcessor", "Failed to initialize LiteRT-LM engine", e)
+            }
         } else {
             Log.e("IntentProcessor", "Model file not found at $modelPath")
         }

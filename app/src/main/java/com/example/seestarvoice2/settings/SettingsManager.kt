@@ -19,7 +19,9 @@ class SettingsManager(context: Context) {
     companion object {
         val REQUIRE_WAKE_WORD = booleanPreferencesKey("require_wake_word")
         val LLM_ENGINE = stringPreferencesKey("llm_engine")
+        val DEBUG_LOGGING = booleanPreferencesKey("debug_logging")
         val SEESTAR_IP = stringPreferencesKey("seestar_ip")
+        val TELESCOPE_PORT = intPreferencesKey("telescope_port")
         val BORTLE_SCALE = intPreferencesKey("bortle_scale")
     }
 
@@ -28,11 +30,19 @@ class SettingsManager(context: Context) {
     }
 
     val llmEngine: Flow<String> = appContext.dataStore.data.map { preferences ->
-        preferences[LLM_ENGINE] ?: "gemma-2b-it-cpu-int4.bin"
+        preferences[LLM_ENGINE] ?: "gemma-4-E2B-it.litertlm"
+    }
+
+    val debugLogging: Flow<Boolean> = appContext.dataStore.data.map { preferences ->
+        preferences[DEBUG_LOGGING] ?: true
     }
 
     val seestarIp: Flow<String> = appContext.dataStore.data.map { preferences ->
         preferences[SEESTAR_IP] ?: "10.0.0.1"
+    }
+
+    val telescopePort: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        preferences[TELESCOPE_PORT] ?: 4030
     }
 
     val bortleScale: Flow<Int> = appContext.dataStore.data.map { preferences ->
@@ -51,9 +61,21 @@ class SettingsManager(context: Context) {
         }
     }
 
+    suspend fun setDebugLogging(enabled: Boolean) {
+        appContext.dataStore.edit { preferences ->
+            preferences[DEBUG_LOGGING] = enabled
+        }
+    }
+
     suspend fun setSeestarIp(ip: String) {
         appContext.dataStore.edit { preferences ->
             preferences[SEESTAR_IP] = ip
+        }
+    }
+
+    suspend fun setTelescopePort(port: Int) {
+        appContext.dataStore.edit { preferences ->
+            preferences[TELESCOPE_PORT] = port
         }
     }
 
