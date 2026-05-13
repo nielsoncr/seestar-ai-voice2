@@ -109,10 +109,13 @@ object AstroUtils {
         lat: Double,
         lon: Double,
         time: Calendar,
-        bortle: Int
+        bortle: Int,
+        minAngle: Int = 15
     ): Pair<Boolean, String> {
         val objAltAz = calculateAltAz(objRa, objDec, lat, lon, time)
+        
         if (objAltAz.altitude <= 0) return Pair(false, "below the horizon")
+        if (objAltAz.altitude < minAngle) return Pair(false, "too low on the horizon")
         
         val sunCoords = getSunRaDec(time)
         val sunAltAz = calculateAltAz(sunCoords.first, sunCoords.second, lat, lon, time)

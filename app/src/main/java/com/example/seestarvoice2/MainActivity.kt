@@ -12,10 +12,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
-import com.example.seestarvoice2.intelligence.TtsManager
 import com.example.seestarvoice2.settings.SettingsManager
 import com.example.seestarvoice2.ui.MainScreen
 import com.example.seestarvoice2.ui.MainViewModel
@@ -26,7 +28,6 @@ import com.google.android.gms.location.Priority
 import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
-    private lateinit var ttsManager: TtsManager
     private lateinit var settingsManager: SettingsManager
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var mainViewModel: MainViewModel? = null
@@ -45,6 +46,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Enable full screen / immersive mode
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
         enableEdgeToEdge()
 
         settingsManager = SettingsManager(this)
@@ -64,12 +72,10 @@ class MainActivity : ComponentActivity() {
             fetchLocation()
         }
 
-        ttsManager = TtsManager(this)
-
         setContent {
             SeeStarVoice2Theme {
                 val viewModel: MainViewModel = viewModel {
-                    MainViewModel(application, ttsManager, settingsManager)
+                    MainViewModel(application, settingsManager)
                 }
                 mainViewModel = viewModel
                 SeeStarVoiceApp(viewModel)
@@ -89,7 +95,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        ttsManager.shutdown()
     }
 }
 

@@ -21,6 +21,7 @@ sealed class TelescopeIntent {
     object OpenArm : TelescopeIntent()
     object CloseArm : TelescopeIntent()
     object PowerDown : TelescopeIntent()
+    object Connect : TelescopeIntent()
     data class PointAndCapture(val target: String) : TelescopeIntent()
     data class Unknown(val rawText: String) : TelescopeIntent()
 }
@@ -83,6 +84,17 @@ class IntentProcessor(private val context: Context, private val modelPath: Strin
             finalNormalized.contains("open") && finalNormalized.contains("arm") -> TelescopeIntent.OpenArm
             finalNormalized.contains("close") && finalNormalized.contains("arm") -> TelescopeIntent.CloseArm
             finalNormalized.contains("power down") || finalNormalized.contains("shut down") || finalNormalized.contains("turn off") -> TelescopeIntent.PowerDown
+            finalNormalized.contains("connect") -> TelescopeIntent.Connect
+            
+            // Priority 1: Direct target commands (GOTO)
+            finalNormalized.contains("show me") || finalNormalized.contains("move to") || 
+                    finalNormalized.contains("go to") || finalNormalized.contains("find") || 
+                    finalNormalized.contains("point to") -> {
+                val target = extractTarget(cleanedText, listOf("go", "to", "find", "point", "show", "me", "move", "the"))
+                TelescopeIntent.GOTO(target)
+            }
+
+            // Priority 2: Visibility queries
             (finalNormalized.contains("when") && (finalNormalized.contains("visible") || finalNormalized.contains("up"))) ||
                     finalNormalized.contains("next visible") -> {
                 val target = extractTarget(cleanedText, listOf("when", "visible", "up", "next", "is", "will", "be"))
@@ -96,6 +108,8 @@ class IntentProcessor(private val context: Context, private val modelPath: Strin
                 val target = extractTarget(cleanedText, listOf("show", "view"))
                 TelescopeIntent.VisibilityQuery(target, locationSpec = locationSpec, timeSpec = timeSpec)
             }
+
+            // Priority 3: Movement and generic commands
             finalNormalized.contains("move") || finalNormalized.contains("slew") -> {
                 val direction = when {
                     finalNormalized.contains("left") -> "left"
@@ -105,10 +119,6 @@ class IntentProcessor(private val context: Context, private val modelPath: Strin
                     else -> "unknown"
                 }
                 TelescopeIntent.Move(direction)
-            }
-            finalNormalized.contains("go to") || finalNormalized.contains("find") || finalNormalized.contains("point to") -> {
-                val target = cleanedText.split("to", "find", ignoreCase = true).last().trim()
-                TelescopeIntent.GOTO(target)
             }
             finalNormalized.contains("capture") || finalNormalized.contains("take a picture") || finalNormalized.contains("photo") -> {
                 TelescopeIntent.Capture

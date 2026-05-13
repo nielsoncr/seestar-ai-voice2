@@ -29,7 +29,6 @@ import java.util.Locale
 
 class MainViewModel(
     application: Application,
-    private val ttsManager: TtsManager,
     private val settingsManager: SettingsManager
 ) : AndroidViewModel(application) {
     
@@ -43,17 +42,28 @@ class MainViewModel(
     var debugLogging by mutableStateOf(true)
         private set
     
-    var currentLlmEngine by mutableStateOf("gemma-4-E2B-it.litertlm")
+    var currentLlmEngine by mutableStateOf("qwen2.5-1.5b-instruct.litertlm")
         private set
 
     var seestarIp by mutableStateOf("10.0.0.1")
         private set
 
-    var telescopePort by mutableStateOf(4030)
+    var telescopePort by mutableStateOf(32323)
         private set
 
     var bortleScale by mutableStateOf(5)
         private set
+
+    var minVisibilityAngle by mutableStateOf(15)
+        private set
+
+    var wakeWords by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    var speakResponses by mutableStateOf(true)
+        private set
+
+    val assistantResponses = mutableStateListOf<String>()
 
     var capturedImageUrl by mutableStateOf<String?>(null)
         private set
@@ -67,9 +77,15 @@ class MainViewModel(
     private var intentProcessor: IntentProcessor? = null
     private val dateFormatter = SimpleDateFormat("yyyy-MMM-dd HH:mm:ss", Locale.getDefault())
     private val db = AppDatabase.getDatabase(application)
+    private val ttsManager = TtsManager(application)
     private val telescopeController = TelescopeController(
-        port = 4030,
-        onLog = { if (debugLogging) addLog("HTTP: $it") }
+        port = 32323,
+        onLog = { if (debugLogging) addLog("HTTP: $it") },
+        onConnect = { name -> 
+            val msg = "Connected to $name at $seestarIp"
+            addLog(msg)
+            speakAssistantResponse(msg)
+        }
     )
 
     private val voiceRecognizer = VoiceRecognizer(
@@ -77,6 +93,9 @@ class MainViewModel(
         onResult = { text -> onUserSpeechInput(text) },
         onError = { error -> addLog("Voice Error: $error") }
     )
+
+    private var lastWakeWordTimestamp: Long = 0
+    private val WAKE_WORD_GRACE_PERIOD_MS = 8000 // 8 seconds
 
     init {
         // Load initial settings synchronously for initialization
@@ -88,6 +107,9 @@ class MainViewModel(
             telescopePort = settingsManager.telescopePort.first()
             telescopeController.port = telescopePort
             bortleScale = settingsManager.bortleScale.first()
+            minVisibilityAngle = settingsManager.minVisibilityAngle.first()
+            wakeWords = settingsManager.wakeWords.first()
+            speakResponses = settingsManager.speakResponses.first()
         }
         
         // Observe settings changes
@@ -95,23 +117,37 @@ class MainViewModel(
             settingsManager.requireWakeWord.collect { requireWakeWord = it }
         }
         viewModelScope.launch {
+            settingsManager.speakResponses.collect { speakResponses = it }
+        }
+        viewModelScope.launch {
+            settingsManager.minVisibilityAngle.collect { minVisibilityAngle = it }
+        }
+        viewModelScope.launch {
             settingsManager.debugLogging.collect { debugLogging = it }
         }
         viewModelScope.launch {
-            settingsManager.seestarIp.collect { seestarIp = it }
+            settingsManager.seestarIp.collect { 
+                seestarIp = it
+                checkTelescopeConnection()
+            }
         }
         viewModelScope.launch {
             settingsManager.telescopePort.collect { 
                 telescopePort = it
                 telescopeController.port = it
+                checkTelescopeConnection()
             }
         }
         viewModelScope.launch {
             settingsManager.bortleScale.collect { bortleScale = it }
         }
+        viewModelScope.launch {
+            settingsManager.wakeWords.collect { wakeWords = it }
+        }
         
         seedDatabaseIfNeeded()
         initializeIntelligence()
+        checkTelescopeConnection()
     }
 
     fun updateRequireWakeWord(required: Boolean) {
@@ -133,7 +169,7 @@ class MainViewModel(
     }
 
     fun updateTelescopePort(port: String) {
-        val portInt = port.toIntOrNull() ?: 4030
+        val portInt = port.toIntOrNull() ?: 32323
         viewModelScope.launch {
             settingsManager.setTelescopePort(portInt)
         }
@@ -145,9 +181,75 @@ class MainViewModel(
         }
     }
 
+    fun updateMinVisibilityAngle(angle: Int) {
+        viewModelScope.launch {
+            settingsManager.setMinVisibilityAngle(angle)
+        }
+    }
+
+    fun updateSpeakResponses(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setSpeakResponses(enabled)
+        }
+    }
+
+    fun addWakeWord(word: String) {
+        val trimmed = word.trim().lowercase()
+        if (trimmed.isNotEmpty() && !wakeWords.contains(trimmed)) {
+            viewModelScope.launch {
+                settingsManager.setWakeWords(wakeWords + trimmed)
+            }
+        }
+    }
+
+    fun removeWakeWord(word: String) {
+        viewModelScope.launch {
+            settingsManager.setWakeWords(wakeWords - word)
+        }
+    }
+
     fun updateCurrentLocation(lat: Double, lon: Double) {
         currentLocation = Pair(lat, lon)
         addLog("Location updated: $lat, $lon")
+    }
+
+    private fun checkTelescopeConnection() {
+        telescopeController.isConnected(seestarIp, { connected ->
+            if (connected) {
+                telescopeController.getTelescopeName(seestarIp, { name ->
+                    val msg = "Connected to $name at $seestarIp"
+                    addLog(msg)
+                    speakAssistantResponse(msg)
+                }, {
+                    addLog("Connected to $seestarIp (Name fetch failed)")
+                })
+            } else {
+                telescopeController.connect(seestarIp, {
+                    telescopeController.getTelescopeName(seestarIp, { name ->
+                        val msg = "Connected to $name at $seestarIp"
+                        addLog(msg)
+                        speakAssistantResponse(msg)
+                    }, {
+                        addLog("Connected to $seestarIp")
+                    })
+                }, { error ->
+                    addLog("Connection check failed: $error")
+                })
+            }
+        }, { error ->
+            // Try connecting anyway
+            telescopeController.connect(seestarIp, {
+                telescopeController.getTelescopeName(seestarIp, { name ->
+                    val msg = "Connected to $name at $seestarIp"
+                    addLog(msg)
+                    speakAssistantResponse(msg)
+                }, {
+                    addLog("Connected to $seestarIp")
+                })
+            }, { 
+                addLog("Status check error: $error")
+            })
+        })
     }
 
     private fun seedDatabaseIfNeeded() {
@@ -239,7 +341,7 @@ class MainViewModel(
 
             isModelLoading = false
             addLog("System ready.")
-            ttsManager.speak("System ready.")
+            speakAssistantResponse("System ready.")
             voiceRecognizer.startListening()
         }
     }
@@ -247,6 +349,7 @@ class MainViewModel(
     override fun onCleared() {
         super.onCleared()
         voiceRecognizer.destroy()
+        ttsManager.shutdown()
     }
 
     private suspend fun copyModelFromAssets(targetFile: File) = withContext(Dispatchers.IO) {
@@ -268,27 +371,63 @@ class MainViewModel(
         }
     }
 
+    private fun speakAssistantResponse(text: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            assistantResponses.add(0, text)
+            if (speakResponses) {
+                ttsManager.speak(text)
+            }
+        }
+    }
+
     fun onUserSpeechInput(text: String) {
         val normalized = text.lowercase()
+        // Wake words are now loaded from settings
+        val currentWakeWords = wakeWords
+        val now = System.currentTimeMillis()
+        val isWithinGracePeriod = now - lastWakeWordTimestamp < WAKE_WORD_GRACE_PERIOD_MS
         
-        if (requireWakeWord) {
-            if (normalized.contains("seestar")) {
-                val command = text.replace("seestar", "", ignoreCase = true).trim()
-                if (command.isNotEmpty()) {
-                    processCommand(command, text)
-                } else {
-                    addLog("Wake word 'SeeStar' detected, but no command followed.")
+        val foundWakeWord = currentWakeWords.find { normalized.contains(it) }
+        
+        // Scenario 1: Wake word is in this phrase
+        if (foundWakeWord != null) {
+            lastWakeWordTimestamp = now
+            var command = text
+            currentWakeWords.forEach { word ->
+                command = command.replace(Regex(word, RegexOption.IGNORE_CASE), "")
+            }
+            command = command.trim().replace(Regex("^[,.?! ]+"), "").trim()
+            
+            if (command.isNotEmpty()) {
+                addLog("Wake word detected: '$foundWakeWord'")
+                processCommand(command, text)
+            } else {
+                addLog("Wake word detected. Listening for command...")
+                speakAssistantResponse("Yes?") 
+            }
+            return
+        }
+
+        // Scenario 2: No wake word in this phrase, but maybe we don't need it
+        if (!requireWakeWord || isWithinGracePeriod) {
+            if (text.trim().isNotEmpty()) {
+                if (isWithinGracePeriod && requireWakeWord) {
+                     addLog("Processing (within grace period): \"$text\"")
                 }
+                processCommand(text, text)
             }
         } else {
-            processCommand(text, text)
+            // Scenario 3: Wake word required and missing
+            if (debugLogging) {
+                addLog("Ignored (no wake word): \"$text\"")
+            }
         }
     }
 
     private fun processCommand(command: String, rawText: String) {
         addLog("Input: $rawText")
         if (isModelLoading) {
-            ttsManager.speak("System is still loading. Please wait.")
+            speakAssistantResponse("System is still loading. Please wait.")
             return
         }
         
@@ -301,6 +440,10 @@ class MainViewModel(
             is TelescopeIntent.VisibilityQuery -> {
                 queryObjectVisibility(intent)
             }
+            is TelescopeIntent.Connect -> {
+                addLog("Action: Connecting to telescope...")
+                checkTelescopeConnection()
+            }
             is TelescopeIntent.OpenArm -> controlArm(true)
             is TelescopeIntent.CloseArm -> controlArm(false)
             is TelescopeIntent.PowerDown -> powerDown()
@@ -308,27 +451,27 @@ class MainViewModel(
             is TelescopeIntent.Move -> {
                 val response = "Moving telescope ${intent.direction}."
                 addLog("Intent: Move (${intent.direction})")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
             is TelescopeIntent.GOTO -> {
                 val response = "Pointing to ${intent.target}."
                 addLog("Intent: GOTO (${intent.target})")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
             is TelescopeIntent.Capture -> {
                 val response = "Capturing image."
                 addLog("Intent: Capture")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
             is TelescopeIntent.Stop -> {
                 val response = "Stopping all movement."
                 addLog("Intent: Stop")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
             else -> { // TelescopeIntent.Unknown
-                val response = "I'm sorry, I didn't understand that command."
+                val response = "I'm sorry I didn't understand you"
                 addLog("Intent: Unknown (${intent})")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
         }
     }
@@ -336,7 +479,7 @@ class MainViewModel(
     private fun controlArm(open: Boolean) {
         val action = if (open) "Opening" else "Closing"
         addLog("Action: $action telescope arm at $seestarIp")
-        ttsManager.speak("$action arm.")
+        speakAssistantResponse("$action arm.")
         if (open) {
             telescopeController.openArm(seestarIp, { addLog("Arm opened successfully.") }, { addLog("Error: $it") })
         } else {
@@ -346,40 +489,46 @@ class MainViewModel(
 
     private fun powerDown() {
         addLog("Action: Powering down telescope at $seestarIp")
-        ttsManager.speak("Powering down.")
+        speakAssistantResponse("Powering down.")
         telescopeController.powerDown(seestarIp, { addLog("Shutdown signal sent.") }, { addLog("Note: $it") })
     }
 
     private fun pointAndCapture(targetName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val ngcObject = db.ngcDao().getObjectByName(targetName.uppercase())
+            val ngcObject = db.ngcDao().getObjectByName(targetName)
                 ?: db.ngcDao().searchObjects(targetName).firstOrNull()
 
             if (ngcObject != null) {
                 addLog("Action: Pointing to ${ngcObject.name} and capturing image.")
-                ttsManager.speak("Pointing to ${ngcObject.name} and taking a photo.")
+                speakAssistantResponse("Pointing to ${ngcObject.name} and taking a photo.")
                 
                 telescopeController.slewAndCapture(seestarIp, ngcObject.ra, ngcObject.dec, { result ->
                     addLog(result)
                     // Mock image display logic
                     capturedImageUrl = "https://via.placeholder.com/800x600.png?text=${ngcObject.name}+Captured"
-                    ttsManager.speak("Image of ${ngcObject.name} captured and displayed.")
+                    speakAssistantResponse("Image of ${ngcObject.name} captured and displayed.")
                 }, { error ->
                     addLog("Error during capture: $error")
-                    ttsManager.speak("Sorry, I encountered an error while trying to capture ${ngcObject.name}.")
+                    speakAssistantResponse("Sorry, I encountered an error while trying to capture ${ngcObject.name}.")
                 })
             } else {
                 addLog("Error: Could not find $targetName in catalog.")
-                ttsManager.speak("I couldn't find $targetName in my database.")
+                speakAssistantResponse("I couldn't find $targetName in my database.")
             }
         }
     }
 
     private fun queryObjectVisibility(intent: TelescopeIntent.VisibilityQuery) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Clean target of any lingering "SeeStar" just in case
-            val target = intent.target.replace("seestar", "", ignoreCase = true).trim()
-            val ngcObject = db.ngcDao().getObjectByName(target.uppercase())
+            // Clean target of any lingering wake words just in case
+            var target = intent.target
+            val currentWakeWords = wakeWords
+            currentWakeWords.forEach { word ->
+                target = target.replace(Regex(word, RegexOption.IGNORE_CASE), "")
+            }
+            target = target.trim().replace(Regex("^[,.?! ]+"), "").trim()
+
+            val ngcObject = db.ngcDao().getObjectByName(target)
                 ?: db.ngcDao().searchObjects(target).firstOrNull()
 
             if (ngcObject != null) {
@@ -414,7 +563,7 @@ class MainViewModel(
             } else {
                 val response = "I couldn't find $target in my database."
                 addLog("Visibility: $response")
-                ttsManager.speak(response)
+                speakAssistantResponse(response)
             }
         }
     }
@@ -429,7 +578,8 @@ class MainViewModel(
             lat = lat,
             lon = lon,
             time = requestedTime,
-            bortle = bortleScale
+            bortle = bortleScale,
+            minAngle = minVisibilityAngle
         )
         
         val altAz = AstroUtils.calculateAltAz(ngcObject.ra, ngcObject.dec, lat, lon, requestedTime)
@@ -442,7 +592,7 @@ class MainViewModel(
         }
         
         addLog("Visibility: $response")
-        ttsManager.speak(response)
+        speakAssistantResponse(response)
     }
 
     private fun findNextVisibility(ngcObject: NgcObject, lat: Double, lon: Double, locationName: String, spokenName: String) {
@@ -461,7 +611,8 @@ class MainViewModel(
                 lat = lat,
                 lon = lon,
                 time = searchTime,
-                bortle = bortleScale
+                bortle = bortleScale,
+                minAngle = minVisibilityAngle
             )
 
             if (vCheck.first) {
@@ -479,11 +630,11 @@ class MainViewModel(
             val timeString = SimpleDateFormat("HH:mm", Locale.getDefault()).format(bestTime.time)
             val response = "$spokenName will be $bestVisibilityInfo in $locationName at $timeString, reaching ${bestAlt.toInt()} degrees."
             addLog("Predictive: $response")
-            ttsManager.speak(response)
+            speakAssistantResponse(response)
         } else {
             val response = "$spokenName will not be visible in $locationName in the next 24 hours (due to daylight or light pollution)."
             addLog("Predictive: $response")
-            ttsManager.speak(response)
+            speakAssistantResponse(response)
         }
     }
 }

@@ -7,10 +7,10 @@ import androidx.room.Query
 
 @Dao
 interface NgcDao {
-    @Query("SELECT * FROM ngc_objects WHERE name = :name OR commonNames LIKE '%' || :name || '%' LIMIT 1")
+    @Query("SELECT * FROM ngc_objects WHERE name = :name OR commonNames LIKE '%' || :name || '%' COLLATE NOCASE LIMIT 1")
     suspend fun getObjectByName(name: String): NgcObject?
 
-    @Query("SELECT * FROM ngc_objects WHERE name LIKE '%' || :query || '%' OR commonNames LIKE '%' || :query || '%'")
+    @Query("SELECT * FROM ngc_objects WHERE name LIKE '%' || :query || '%' COLLATE NOCASE OR commonNames LIKE '%' || :query || '%' COLLATE NOCASE")
     suspend fun searchObjects(query: String): List<NgcObject>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
