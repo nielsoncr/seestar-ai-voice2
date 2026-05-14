@@ -63,6 +63,9 @@ class MainViewModel(
     var speakResponses by mutableStateOf(true)
         private set
 
+    var enableActionButtons by mutableStateOf(false)
+        private set
+
     val assistantResponses = mutableStateListOf<String>()
 
     var capturedImageUrl by mutableStateOf<String?>(null)
@@ -98,6 +101,8 @@ class MainViewModel(
     private val WAKE_WORD_GRACE_PERIOD_MS = 8000 // 8 seconds
 
     init {
+        addLog("Build Version: ${com.example.seestarvoice2.BuildConfig.VERSION_NAME}")
+
         // Load initial settings synchronously for initialization
         runBlocking {
             requireWakeWord = settingsManager.requireWakeWord.first()
@@ -110,6 +115,7 @@ class MainViewModel(
             minVisibilityAngle = settingsManager.minVisibilityAngle.first()
             wakeWords = settingsManager.wakeWords.first()
             speakResponses = settingsManager.speakResponses.first()
+            enableActionButtons = settingsManager.enableActionButtons.first()
         }
         
         // Observe settings changes
@@ -118,6 +124,9 @@ class MainViewModel(
         }
         viewModelScope.launch {
             settingsManager.speakResponses.collect { speakResponses = it }
+        }
+        viewModelScope.launch {
+            settingsManager.enableActionButtons.collect { enableActionButtons = it }
         }
         viewModelScope.launch {
             settingsManager.minVisibilityAngle.collect { minVisibilityAngle = it }
@@ -193,6 +202,12 @@ class MainViewModel(
         }
     }
 
+    fun updateEnableActionButtons(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setEnableActionButtons(enabled)
+        }
+    }
+
     fun addWakeWord(word: String) {
         val trimmed = word.trim().lowercase()
         if (trimmed.isNotEmpty() && !wakeWords.contains(trimmed)) {
@@ -213,8 +228,8 @@ class MainViewModel(
         addLog("Location updated: $lat, $lon")
     }
 
-    private fun checkTelescopeConnection() {
-        telescopeController.isConnected(seestarIp, { connected ->
+    private fun checkTelescopeConnection(force: Boolean = false) {
+        telescopeController.isConnected(seestarIp, deviceType = "telescope", forceCheck = force, onResult = { connected ->
             if (connected) {
                 telescopeController.getTelescopeName(seestarIp, { name ->
                     val msg = "Connected to $name at $seestarIp"
@@ -224,7 +239,7 @@ class MainViewModel(
                     addLog("Connected to $seestarIp (Name fetch failed)")
                 })
             } else {
-                telescopeController.connect(seestarIp, {
+                telescopeController.connect(seestarIp, deviceType = "telescope", onComplete = {
                     telescopeController.getTelescopeName(seestarIp, { name ->
                         val msg = "Connected to $name at $seestarIp"
                         addLog(msg)
@@ -232,13 +247,13 @@ class MainViewModel(
                     }, {
                         addLog("Connected to $seestarIp")
                     })
-                }, { error ->
+                }, onError = { error ->
                     addLog("Connection check failed: $error")
                 })
             }
-        }, { error ->
+        }, onError = { error ->
             // Try connecting anyway
-            telescopeController.connect(seestarIp, {
+            telescopeController.connect(seestarIp, deviceType = "telescope", onComplete = {
                 telescopeController.getTelescopeName(seestarIp, { name ->
                     val msg = "Connected to $name at $seestarIp"
                     addLog(msg)
@@ -246,7 +261,7 @@ class MainViewModel(
                 }, {
                     addLog("Connected to $seestarIp")
                 })
-            }, { 
+            }, onError = {
                 addLog("Status check error: $error")
             })
         })
@@ -294,8 +309,8 @@ class MainViewModel(
                     objects.add(NgcObject("URANUS", "The Ice Giant", 0.0, 0.0, "Planet", "Varies", 5.7))
                     objects.add(NgcObject("NEPTUNE", "The Distant Giant", 0.0, 0.0, "Planet", "Varies", 7.8))
                     objects.add(NgcObject("PLUTO", "The Dwarf Planet", 0.0, 0.0, "Planet", "Varies", 14.5))
-                    objects.add(NgcObject("SUN", "The Sun", 0.0, 0.0, "Star", "Varies", -26.7))
-                    objects.add(NgcObject("MOON", "The Moon", 0.0, 0.0, "Moon", "Varies", -12.74))
+                    objects.add(NgcObject("SUN", "The Sun", 0.0, 0.0, "SUN", "Varies", -26.7))
+                    objects.add(NgcObject("MOON", "The Moon", 0.0, 0.0, "MOON", "Varies", -12.74))
 
                     if (objects.isNotEmpty()) {
                         db.clearAllTables()
@@ -432,10 +447,11 @@ class MainViewModel(
         }
         
         val intent = intentProcessor?.processIntent(command) ?: TelescopeIntent.Unknown(command)
+        addLog("Detected Intent: $intent")
         handleIntent(intent)
     }
 
-    private fun handleIntent(intent: TelescopeIntent) {
+    fun handleIntent(intent: TelescopeIntent) {
         when (intent) {
             is TelescopeIntent.VisibilityQuery -> {
                 queryObjectVisibility(intent)
@@ -454,14 +470,13 @@ class MainViewModel(
                 speakAssistantResponse(response)
             }
             is TelescopeIntent.GOTO -> {
-                val response = "Pointing to ${intent.target}."
-                addLog("Intent: GOTO (${intent.target})")
-                speakAssistantResponse(response)
+                gotoObject(intent.target)
             }
             is TelescopeIntent.Capture -> {
-                val response = "Capturing image."
-                addLog("Intent: Capture")
-                speakAssistantResponse(response)
+                capture()
+            }
+            is TelescopeIntent.QuickCapture -> {
+                quickPik()
             }
             is TelescopeIntent.Stop -> {
                 val response = "Stopping all movement."
@@ -481,7 +496,17 @@ class MainViewModel(
         addLog("Action: $action telescope arm at $seestarIp")
         speakAssistantResponse("$action arm.")
         if (open) {
-            telescopeController.openArm(seestarIp, { addLog("Arm opened successfully.") }, { addLog("Error: $it") })
+            val now = Calendar.getInstance()
+            val lat = currentLocation?.first ?: 51.5
+            val lon = currentLocation?.second ?: -0.1
+            val zenith = AstroUtils.getZenithCoordinates(lat, lon, now)
+            
+            // Open arm by slewing to Zenith coordinates using Equatorial slew (more compatible)
+            telescopeController.openArm(seestarIp, zenith.first, zenith.second, {
+                addLog("Arm opened successfully via Zenith slew.") 
+            }, { 
+                addLog("Error: $it") 
+            })
         } else {
             telescopeController.closeArm(seestarIp, { addLog("Arm closed successfully.") }, { addLog("Error: $it") })
         }
@@ -493,6 +518,82 @@ class MainViewModel(
         telescopeController.powerDown(seestarIp, { addLog("Shutdown signal sent.") }, { addLog("Note: $it") })
     }
 
+    private fun quickPik() {
+        addLog("Action: Performing quick capture at $seestarIp")
+        speakAssistantResponse("Taking a quick picture.")
+        
+        // Clear previous capture image
+        capturedImageUrl = null
+        
+        telescopeController.quickCapture(seestarIp, { progress ->
+            addLog("Quick Capture: $progress")
+        }, { result, imageUrl ->
+            addLog(result)
+            viewModelScope.launch(Dispatchers.Main) {
+                capturedImageUrl = imageUrl
+                addLog("Retrieved quick image from: $imageUrl")
+                speakAssistantResponse("Quick picture displayed.")
+            }
+        }, { error ->
+            addLog("Quick Capture Error: $error")
+            speakAssistantResponse("Sorry, I couldn't take a quick picture.")
+        })
+    }
+
+    private fun capture() {
+        addLog("Action: Performing standard capture at $seestarIp")
+        speakAssistantResponse("Capturing image.")
+        
+        // Clear previous capture image
+        capturedImageUrl = null
+        
+        // We need a dummy ra/dec if we want to reuse slewAndCapture, 
+        // OR we should add a capture-only method to TelescopeController.
+        // For now, let's assume we capture the current position.
+        // I'll add a 'captureOnly' method to TelescopeController.
+        
+        telescopeController.captureOnly(seestarIp, { progress ->
+            addLog("Capture: $progress")
+        }, { result, imageUrl ->
+            addLog(result)
+            viewModelScope.launch(Dispatchers.Main) {
+                capturedImageUrl = imageUrl
+                addLog("Retrieved image from: $imageUrl")
+                speakAssistantResponse("Image captured and displayed.")
+            }
+        }, { error ->
+            addLog("Capture Error: $error")
+            speakAssistantResponse("Sorry, I couldn't capture the image.")
+        })
+    }
+
+    private fun gotoObject(targetName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ngcObject = db.ngcDao().getObjectByName(targetName)
+                ?: db.ngcDao().searchObjects(targetName).firstOrNull()
+
+            if (ngcObject != null) {
+                addLog("Action: Pointing to ${ngcObject.name} at $seestarIp")
+                speakAssistantResponse("Pointing to ${ngcObject.name}.")
+                
+                // Clear previous capture image while moving
+                capturedImageUrl = null
+                
+                addLog("Starting slew to ${ngcObject.name}...")
+                telescopeController.gotoCoordinates(seestarIp, ngcObject.ra, ngcObject.dec, {
+                    addLog("Successfully slewed to ${ngcObject.name}.")
+                }, { error ->
+                    addLog("Slew error: $error")
+                    speakAssistantResponse("Sorry, I couldn't move to ${ngcObject.name} due to an error.")
+                })
+            } else {
+                val response = "I couldn't find $targetName in my database."
+                addLog("Error: $response")
+                speakAssistantResponse(response)
+            }
+        }
+    }
+
     private fun pointAndCapture(targetName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val ngcObject = db.ngcDao().getObjectByName(targetName)
@@ -502,11 +603,20 @@ class MainViewModel(
                 addLog("Action: Pointing to ${ngcObject.name} and capturing image.")
                 speakAssistantResponse("Pointing to ${ngcObject.name} and taking a photo.")
                 
-                telescopeController.slewAndCapture(seestarIp, ngcObject.ra, ngcObject.dec, { result ->
+                // Clear previous capture image while moving/capturing
+                capturedImageUrl = null
+                
+                telescopeController.slewAndCapture(seestarIp, ngcObject.ra, ngcObject.dec, { progress ->
+                    addLog("Capture: $progress")
+                }, { result, imageUrl ->
                     addLog(result)
-                    // Mock image display logic
-                    capturedImageUrl = "https://via.placeholder.com/800x600.png?text=${ngcObject.name}+Captured"
-                    speakAssistantResponse("Image of ${ngcObject.name} captured and displayed.")
+                    
+                    // Update state with the new image URL
+                    viewModelScope.launch(Dispatchers.Main) {
+                        capturedImageUrl = imageUrl
+                        addLog("Retrieved image from: $imageUrl")
+                        speakAssistantResponse("Image of ${ngcObject.name} captured and displayed.")
+                    }
                 }, { error ->
                     addLog("Error during capture: $error")
                     speakAssistantResponse("Sorry, I encountered an error while trying to capture ${ngcObject.name}.")

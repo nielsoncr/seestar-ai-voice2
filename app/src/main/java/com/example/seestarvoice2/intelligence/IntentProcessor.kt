@@ -17,6 +17,7 @@ sealed class TelescopeIntent {
         val predictive: Boolean = false
     ) : TelescopeIntent()
     object Capture : TelescopeIntent()
+    object QuickCapture : TelescopeIntent()
     object Stop : TelescopeIntent()
     object OpenArm : TelescopeIntent()
     object CloseArm : TelescopeIntent()
@@ -85,12 +86,15 @@ class IntentProcessor(private val context: Context, private val modelPath: Strin
             finalNormalized.contains("close") && finalNormalized.contains("arm") -> TelescopeIntent.CloseArm
             finalNormalized.contains("power down") || finalNormalized.contains("shut down") || finalNormalized.contains("turn off") -> TelescopeIntent.PowerDown
             finalNormalized.contains("connect") -> TelescopeIntent.Connect
+            finalNormalized.contains("quick pik") || finalNormalized.contains("quick pick") || 
+                    finalNormalized.contains("snap") || finalNormalized.contains("snapshot") || 
+                    finalNormalized.contains("quick picture") -> TelescopeIntent.QuickCapture
             
             // Priority 1: Direct target commands (GOTO)
             finalNormalized.contains("show me") || finalNormalized.contains("move to") || 
-                    finalNormalized.contains("go to") || finalNormalized.contains("find") || 
-                    finalNormalized.contains("point to") -> {
-                val target = extractTarget(cleanedText, listOf("go", "to", "find", "point", "show", "me", "move", "the"))
+                    finalNormalized.contains("go to") || finalNormalized.contains("goto") || 
+                    finalNormalized.contains("find") || finalNormalized.contains("point to") -> {
+                val target = extractTarget(cleanedText, listOf("go", "to", "find", "point", "show", "me", "move", "the", "goto"))
                 TelescopeIntent.GOTO(target)
             }
 

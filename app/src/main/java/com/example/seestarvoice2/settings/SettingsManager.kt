@@ -26,6 +26,7 @@ class SettingsManager(context: Context) {
         val WAKE_WORDS = stringPreferencesKey("wake_words")
         val SPEAK_RESPONSES = booleanPreferencesKey("speak_responses")
         val MIN_VISIBILITY_ANGLE = intPreferencesKey("min_visibility_angle")
+        val ENABLE_ACTION_BUTTONS = booleanPreferencesKey("enable_action_buttons")
     }
 
     private val defaultWakeWords = "seestar,seastar,see star,sea star,c star,si star,sister,seaster"
@@ -36,6 +37,10 @@ class SettingsManager(context: Context) {
 
     val speakResponses: Flow<Boolean> = appContext.dataStore.data.map { preferences ->
         preferences[SPEAK_RESPONSES] ?: true
+    }
+
+    val enableActionButtons: Flow<Boolean> = appContext.dataStore.data.map { preferences ->
+        preferences[ENABLE_ACTION_BUTTONS] ?: false
     }
 
     val minVisibilityAngle: Flow<Int> = appContext.dataStore.data.map { preferences ->
@@ -112,6 +117,12 @@ class SettingsManager(context: Context) {
     suspend fun setSpeakResponses(enabled: Boolean) {
         appContext.dataStore.edit { preferences ->
             preferences[SPEAK_RESPONSES] = enabled
+        }
+    }
+
+    suspend fun setEnableActionButtons(enabled: Boolean) {
+        appContext.dataStore.edit { preferences ->
+            preferences[ENABLE_ACTION_BUTTONS] = enabled
         }
     }
 

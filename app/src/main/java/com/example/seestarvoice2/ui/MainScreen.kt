@@ -58,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -100,7 +101,7 @@ fun MainScreen(viewModel: MainViewModel) {
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = "SeeStar Voice 2",
+                        text = "Welcome to SeeStar Voice",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -213,6 +214,60 @@ fun MainScreen(viewModel: MainViewModel) {
                 ) {
                     LogContent(logs = viewModel.logs)
                 }
+            }
+
+            if (viewModel.enableActionButtons) {
+                ActionButtonsBar(
+                    onOpenArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.OpenArm) },
+                    onCloseArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.CloseArm) },
+                    onCapture = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.QuickCapture) },
+                    onGoto = { target -> viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.GOTO(target)) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ActionButtonsBar(
+    onOpenArm: () -> Unit,
+    onCloseArm: () -> Unit,
+    onCapture: () -> Unit,
+    onGoto: (String) -> Unit
+) {
+    var gotoTarget by remember { mutableStateOf("") }
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 4.dp,
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+        ) {
+            TextButton(onClick = onOpenArm) { Text("Open Arm") }
+            TextButton(onClick = onCloseArm) { Text("Close Arm") }
+            TextButton(onClick = onCapture) { Text("Capture") }
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            TextField(
+                value = gotoTarget,
+                onValueChange = { gotoTarget = it },
+                placeholder = { Text("M31, Moon...") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            
+            TextButton(
+                onClick = { if (gotoTarget.isNotBlank()) onGoto(gotoTarget) },
+                enabled = gotoTarget.isNotBlank()
+            ) {
+                Text("Goto")
             }
         }
     }
@@ -348,6 +403,24 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Action Buttons Option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.updateEnableActionButtons(!viewModel.enableActionButtons) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = viewModel.enableActionButtons,
+                        onCheckedChange = { viewModel.updateEnableActionButtons(it) }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Enable Action Buttons", style = MaterialTheme.typography.bodyLarge)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // SeeStar IP Option
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(text = "SeeStar IP Address", style = MaterialTheme.typography.labelLarge)
@@ -449,7 +522,7 @@ fun SettingsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                androidx.compose.material3.TextButton(
+                TextButton(
                     onClick = onDismiss,
                     modifier = Modifier
                         .align(Alignment.End)
@@ -621,22 +694,18 @@ fun LiveViewContent(
             model = capturedImageUrl ?: spiralGalaxyAsset,
             contentDescription = "Telescope View",
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            onLoading = {
+                android.util.Log.d("MainScreen", "Image loading: ${capturedImageUrl ?: "Welcome"}")
+            },
+            onSuccess = {
+                android.util.Log.d("MainScreen", "Image loaded successfully")
+            },
+            onError = { error ->
+                android.util.Log.e("MainScreen", "Image load failed: ${error.result.throwable.message}")
+            }
         )
 
-        // Top Centered Title
-        Text(
-            text = "Welcome to SeeStar Voice",
-            style = MaterialTheme.typography.headlineMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 40.dp)
-                .background(Color.Black.copy(alpha = 0.5f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-        )
-        
         if (isLoading) {
             Box(
                 modifier = Modifier

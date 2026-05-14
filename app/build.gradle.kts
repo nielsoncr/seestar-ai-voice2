@@ -1,9 +1,26 @@
+import java.util.Properties
+import java.io.FileInputStream
+import java.io.FileOutputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.devtools.ksp)
     alias(libs.plugins.jetbrains.kotlin.plugin.serialization)
 }
+
+val versionPropsFile = file("version.properties")
+val versionProps = Properties()
+
+if (versionPropsFile.exists()) {
+    versionProps.load(FileInputStream(versionPropsFile))
+}
+
+val buildNumber = (versionProps.getProperty("build_number") ?: "0").toInt() + 1
+versionProps.setProperty("build_number", buildNumber.toString())
+versionProps.store(FileOutputStream(versionPropsFile), null)
+
+val appVersionName = "0.2.0.$buildNumber"
 
 android {
     namespace = "com.example.seestarvoice2"
@@ -13,8 +30,8 @@ android {
         applicationId = "com.example.seestarvoice2"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNumber
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +51,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     androidResources {

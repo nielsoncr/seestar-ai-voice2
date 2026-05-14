@@ -124,10 +124,12 @@ object AstroUtils {
         val isDark = sunAltAz.altitude < -12.0 // Nautical darkness
         
         val type = objType.uppercase()
-        val isSpecial = type == "SUN" || type == "MOON" || type == "PLANET" || type == "STAR"
+        val isSun = type == "SUN" || objType.contains("Sun", ignoreCase = true)
+        val isMoon = type == "MOON" || objType.contains("Moon", ignoreCase = true)
+        val isSpecial = isSun || isMoon || type == "PLANET" || type == "STAR"
         
-        if (type == "SUN") return Pair(true, "visible")
-        if (type == "MOON") return Pair(true, "visible")
+        if (isSun) return Pair(true, "visible")
+        if (isMoon) return Pair(true, "visible")
         
         if (isDaylight) {
             // During the day, only Sun and Moon are reliably visible to SeeStar.
@@ -203,5 +205,20 @@ object AstroUtils {
         val dayFraction = (hour + minute / 60.0 + second / 3600.0) / 24.0
         
         return jd + dayFraction
+    }
+
+    /**
+     * Calculates the Local Sidereal Time and returns coordinates for the Zenith.
+     * Zenith RA = LST, Zenith Dec = Latitude.
+     */
+    fun getZenithCoordinates(lat: Double, lon: Double, time: Calendar): Pair<Double, Double> {
+        val jd = getJulianDate(time)
+        val d = jd - 2451545.0
+        
+        // Mean Sidereal Time in degrees
+        var lst = (280.46061837 + 360.98564736629 * d + lon) % 360
+        if (lst < 0) lst += 360
+        
+        return Pair(lst, lat)
     }
 }
