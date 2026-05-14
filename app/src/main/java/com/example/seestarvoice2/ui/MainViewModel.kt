@@ -71,6 +71,9 @@ class MainViewModel(
     var capturedImageUrl by mutableStateOf<String?>(null)
         private set
 
+    var isLastCaptureVisible by mutableStateOf(true)
+        private set
+
     var currentLocation by mutableStateOf<Pair<Double, Double>?>(null)
         private set
 
@@ -99,6 +102,8 @@ class MainViewModel(
 
     private var lastWakeWordTimestamp: Long = 0
     private val WAKE_WORD_GRACE_PERIOD_MS = 8000 // 8 seconds
+    private var consecutiveTimeoutCount = 0
+    private var pendingYesResponseJob: kotlinx.coroutines.Job? = null
 
     init {
         addLog("Build Version: ${com.example.seestarvoice2.BuildConfig.VERSION_NAME}")
@@ -226,6 +231,10 @@ class MainViewModel(
     fun updateCurrentLocation(lat: Double, lon: Double) {
         currentLocation = Pair(lat, lon)
         addLog("Location updated: $lat, $lon")
+    }
+
+    fun setCaptureVisibility(visible: Boolean) {
+        isLastCaptureVisible = visible
     }
 
     private fun checkTelescopeConnection(force: Boolean = false) {
@@ -414,11 +423,16 @@ class MainViewModel(
             command = command.trim().replace(Regex("^[,.?! ]+"), "").trim()
             
             if (command.isNotEmpty()) {
+                pendingYesResponseJob?.cancel()
                 addLog("Wake word detected: '$foundWakeWord'")
                 processCommand(command, text)
             } else {
                 addLog("Wake word detected. Listening for command...")
-                speakAssistantResponse("Yes?") 
+                pendingYesResponseJob?.cancel()
+                pendingYesResponseJob = viewModelScope.launch {
+                    kotlinx.coroutines.delay(2000)
+                    speakAssistantResponse("Yes?") 
+                }
             }
             return
         }
@@ -426,6 +440,7 @@ class MainViewModel(
         // Scenario 2: No wake word in this phrase, but maybe we don't need it
         if (!requireWakeWord || isWithinGracePeriod) {
             if (text.trim().isNotEmpty()) {
+                pendingYesResponseJob?.cancel()
                 if (isWithinGracePeriod && requireWakeWord) {
                      addLog("Processing (within grace period): \"$text\"")
                 }
@@ -524,11 +539,13 @@ class MainViewModel(
         
         // Clear previous capture image
         capturedImageUrl = null
+        isLastCaptureVisible = true
         
         telescopeController.quickCapture(seestarIp, { progress ->
             addLog("Quick Capture: $progress")
         }, { result, imageUrl ->
             addLog(result)
+            consecutiveTimeoutCount = 0 // Reset on success
             viewModelScope.launch(Dispatchers.Main) {
                 capturedImageUrl = imageUrl
                 addLog("Retrieved quick image from: $imageUrl")
@@ -536,7 +553,7 @@ class MainViewModel(
             }
         }, { error ->
             addLog("Quick Capture Error: $error")
-            speakAssistantResponse("Sorry, I couldn't take a quick picture.")
+            handleTelescopeError(error, "Sorry, I couldn't take a quick picture.")
         })
     }
 
@@ -546,6 +563,7 @@ class MainViewModel(
         
         // Clear previous capture image
         capturedImageUrl = null
+        isLastCaptureVisible = true
         
         // We need a dummy ra/dec if we want to reuse slewAndCapture, 
         // OR we should add a capture-only method to TelescopeController.
@@ -556,14 +574,15 @@ class MainViewModel(
             addLog("Capture: $progress")
         }, { result, imageUrl ->
             addLog(result)
+            consecutiveTimeoutCount = 0 // Reset on success
             viewModelScope.launch(Dispatchers.Main) {
                 capturedImageUrl = imageUrl
                 addLog("Retrieved image from: $imageUrl")
-                speakAssistantResponse("Image captured and displayed.")
+                speakAssistantResponse("Image captured.")
             }
         }, { error ->
             addLog("Capture Error: $error")
-            speakAssistantResponse("Sorry, I couldn't capture the image.")
+            handleTelescopeError(error, "Sorry, I couldn't capture the image.")
         })
     }
 
@@ -573,18 +592,23 @@ class MainViewModel(
                 ?: db.ngcDao().searchObjects(targetName).firstOrNull()
 
             if (ngcObject != null) {
-                addLog("Action: Pointing to ${ngcObject.name} at $seestarIp")
-                speakAssistantResponse("Pointing to ${ngcObject.name}.")
+                // Determine the name to use in the speech response
+                val spokenName = if (targetName.length > 1) targetName else ngcObject.name
+                
+                addLog("Action: Pointing to ${ngcObject.name} ($spokenName) at $seestarIp")
+                speakAssistantResponse("Pointing to $spokenName.")
                 
                 // Clear previous capture image while moving
                 capturedImageUrl = null
+                isLastCaptureVisible = true
                 
-                addLog("Starting slew to ${ngcObject.name}...")
+                addLog("Starting slew to $spokenName...")
                 telescopeController.gotoCoordinates(seestarIp, ngcObject.ra, ngcObject.dec, {
-                    addLog("Successfully slewed to ${ngcObject.name}.")
+                    addLog("Successfully slewed to $spokenName.")
+                    consecutiveTimeoutCount = 0 // Reset on success
                 }, { error ->
                     addLog("Slew error: $error")
-                    speakAssistantResponse("Sorry, I couldn't move to ${ngcObject.name} due to an error.")
+                    handleTelescopeError(error, "Sorry, I couldn't move to $spokenName due to an error.")
                 })
             } else {
                 val response = "I couldn't find $targetName in my database."
@@ -600,31 +624,55 @@ class MainViewModel(
                 ?: db.ngcDao().searchObjects(targetName).firstOrNull()
 
             if (ngcObject != null) {
-                addLog("Action: Pointing to ${ngcObject.name} and capturing image.")
-                speakAssistantResponse("Pointing to ${ngcObject.name} and taking a photo.")
+                // Determine the name to use in the speech response
+                val spokenName = if (targetName.length > 1) targetName else ngcObject.name
+
+                addLog("Action: Pointing to ${ngcObject.name} ($spokenName) and capturing image.")
+                speakAssistantResponse("Pointing to $spokenName and taking a photo.")
                 
                 // Clear previous capture image while moving/capturing
                 capturedImageUrl = null
+                isLastCaptureVisible = true
                 
                 telescopeController.slewAndCapture(seestarIp, ngcObject.ra, ngcObject.dec, { progress ->
                     addLog("Capture: $progress")
                 }, { result, imageUrl ->
                     addLog(result)
+                    consecutiveTimeoutCount = 0 // Reset on success
                     
                     // Update state with the new image URL
                     viewModelScope.launch(Dispatchers.Main) {
+                        isLastCaptureVisible = true
                         capturedImageUrl = imageUrl
                         addLog("Retrieved image from: $imageUrl")
-                        speakAssistantResponse("Image of ${ngcObject.name} captured and displayed.")
+                        speakAssistantResponse("Image of $spokenName captured.")
                     }
                 }, { error ->
                     addLog("Error during capture: $error")
-                    speakAssistantResponse("Sorry, I encountered an error while trying to capture ${ngcObject.name}.")
+                    handleTelescopeError(error, "Sorry, I encountered an error while trying to capture $spokenName.")
                 })
             } else {
                 addLog("Error: Could not find $targetName in catalog.")
                 speakAssistantResponse("I couldn't find $targetName in my database.")
             }
+        }
+    }
+
+    private fun handleTelescopeError(error: String, loudMessage: String) {
+        val isTimeout = error.contains("timeout", ignoreCase = true) || error.contains("timed out", ignoreCase = true)
+        
+        if (isTimeout) {
+            consecutiveTimeoutCount++
+            addLog("Network timeout detected (Consecutive: $consecutiveTimeoutCount)")
+            if (consecutiveTimeoutCount >= 5) {
+                speakAssistantResponse(loudMessage)
+                consecutiveTimeoutCount = 0 
+            } else {
+                addLog("Suppressing spoken error (attempt $consecutiveTimeoutCount of 5)")
+            }
+        } else {
+            speakAssistantResponse(loudMessage)
+            consecutiveTimeoutCount = 0
         }
     }
 

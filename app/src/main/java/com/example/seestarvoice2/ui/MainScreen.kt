@@ -87,7 +87,6 @@ import com.example.seestarvoice2.ui.theme.SeeStarVoice2Theme
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
     var liveViewHeight by remember { mutableStateOf(350.dp) }
-    var assistantHeight by remember { mutableStateOf(200.dp) }
 
     var isLiveViewVisible by remember { mutableStateOf(true) }
     var isAssistantVisible by remember { mutableStateOf(true) }
@@ -159,44 +158,60 @@ fun MainScreen(viewModel: MainViewModel) {
             val totalHeight = maxHeight
             
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top area: Shared by Live View and Assistant Status (takes remaining space)
+                // Shared area: Live View and Assistant Status
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
                 ) {
-                    // Section 1: Live View
-                    CollapsibleResizablePanel(
-                        title = "Live View",
-                        icon = Icons.Default.Visibility,
-                        height = liveViewHeight,
-                        isVisible = isLiveViewVisible,
-                        onHeightChange = { delta: androidx.compose.ui.unit.Dp -> liveViewHeight = (liveViewHeight + delta).coerceIn(100.dp, totalHeight * 0.7f) },
-                        onToggleVisibility = { isLiveViewVisible = !isLiveViewVisible }
-                    ) {
-                        LiveViewContent(
-                            capturedImageUrl = viewModel.capturedImageUrl,
-                            isLoading = viewModel.isModelLoading
-                        )
+                    // Section 1: Live View (Top, fixed/resizable height)
+                    if (isLiveViewVisible) {
+                        CollapsibleResizablePanel(
+                            title = "Live View",
+                            icon = Icons.Default.Visibility,
+                            height = liveViewHeight,
+                            isVisible = isLiveViewVisible,
+                            onHeightChange = { delta: androidx.compose.ui.unit.Dp -> liveViewHeight = (liveViewHeight + delta).coerceIn(100.dp, totalHeight * 0.7f) },
+                            onToggleVisibility = { isLiveViewVisible = !isLiveViewVisible }
+                        ) {
+                            LiveViewContent(
+                                capturedImageUrl = viewModel.capturedImageUrl,
+                                isLoading = viewModel.isModelLoading,
+                                isLastCaptureVisible = viewModel.isLastCaptureVisible,
+                                onImageError = { viewModel.setCaptureVisibility(false) }
+                            )
+                        }
                     }
 
-                    // Section 2: Assistant Status
-                    CollapsibleResizablePanel(
-                        title = "Voice Assistant Status",
-                        icon = Icons.AutoMirrored.Filled.Chat,
-                        height = assistantHeight,
-                        isVisible = isAssistantVisible,
-                        onHeightChange = { delta: androidx.compose.ui.unit.Dp -> assistantHeight = (assistantHeight + delta).coerceIn(100.dp, totalHeight * 0.7f) },
-                        onToggleVisibility = { isAssistantVisible = !isAssistantVisible }
-                    ) {
-                        AssistantStatusContent(
-                            isLoading = viewModel.isModelLoading,
-                            requireWakeWord = viewModel.requireWakeWord,
-                            assistantResponses = viewModel.assistantResponses,
-                            onMockSpeechInput = { viewModel.onUserSpeechInput(it) }
-                        )
+                    // Section 2: Assistant Status (Middle, fills remaining space between Live View and Logs)
+                    if (isAssistantVisible) {
+                        CollapsibleResizablePanel(
+                            title = "Voice Assistant Status",
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            height = 0.dp, // Weight takes precedence
+                            isVisible = isAssistantVisible,
+                            onHeightChange = { /* Flexible area */ },
+                            onToggleVisibility = { isAssistantVisible = !isAssistantVisible },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            AssistantStatusContent(
+                                isLoading = viewModel.isModelLoading,
+                                requireWakeWord = viewModel.requireWakeWord,
+                                assistantResponses = viewModel.assistantResponses,
+                                onMockSpeechInput = { viewModel.onUserSpeechInput(it) }
+                            )
+                        }
                     }
+                }
+
+                // Action Buttons - Docked directly above System Logs
+                if (viewModel.enableActionButtons) {
+                    ActionButtonsBar(
+                        onOpenArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.OpenArm) },
+                        onCloseArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.CloseArm) },
+                        onCapture = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.QuickCapture) },
+                        onGoto = { target -> viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.GOTO(target)) }
+                    )
                 }
 
                 // Section 3: System Logs - Anchored to bottom, 25% of screen height
@@ -207,22 +222,13 @@ fun MainScreen(viewModel: MainViewModel) {
                     icon = Icons.Default.Info,
                     height = if (isLogPanelVisible) ( (totalHeight * 0.25f) - 48.dp).coerceAtLeast(100.dp) else 0.dp,
                     isVisible = isLogPanelVisible,
-                    onHeightChange = { /* Fixed at 25% as requested */ },
+                    onHeightChange = { /* Fixed at 25% */ },
                     onToggleVisibility = { isLogPanelVisible = !isLogPanelVisible },
                     isBottomPanel = true,
                     modifier = Modifier.height(logsDesiredHeight)
                 ) {
                     LogContent(logs = viewModel.logs)
                 }
-            }
-
-            if (viewModel.enableActionButtons) {
-                ActionButtonsBar(
-                    onOpenArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.OpenArm) },
-                    onCloseArm = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.CloseArm) },
-                    onCapture = { viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.QuickCapture) },
-                    onGoto = { target -> viewModel.handleIntent(com.example.seestarvoice2.intelligence.TelescopeIntent.GOTO(target)) }
-                )
             }
         }
     }
@@ -563,20 +569,21 @@ fun CollapsibleResizablePanel(
         AnimatedVisibility(
             visible = isVisible,
             enter = expandVertically(),
-            exit = shrinkVertically()
+            exit = shrinkVertically(),
+            modifier = if (height == 0.dp) Modifier.weight(1f) else Modifier
         ) {
-            Column {
+            Column(modifier = if (height == 0.dp) Modifier.fillMaxHeight() else Modifier) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(height)
+                        .then(if (height > 0.dp) Modifier.height(height) else Modifier.weight(1f))
                         .background(MaterialTheme.colorScheme.surface)
                 ) {
                     content()
                 }
                 
-                if (!isBottomPanel) {
-                    // For top/middle panels, the drag handle is a bar at the bottom
+                if (!isBottomPanel && height > 0.dp) {
+                    // Only show resize handle for fixed-height panels
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -664,7 +671,9 @@ private fun PanelHeader(
 @Composable
 fun LiveViewContent(
     capturedImageUrl: String?,
-    isLoading: Boolean
+    isLoading: Boolean,
+    isLastCaptureVisible: Boolean = true,
+    onImageError: () -> Unit = {}
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "loadingTransition")
     val alpha by infiniteTransition.animateFloat(
@@ -690,21 +699,43 @@ fun LiveViewContent(
     val spiralGalaxyAsset = "file:///android_asset/welcome_galaxy.jpg"
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AsyncImage(
-            model = capturedImageUrl ?: spiralGalaxyAsset,
-            contentDescription = "Telescope View",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            onLoading = {
-                android.util.Log.d("MainScreen", "Image loading: ${capturedImageUrl ?: "Welcome"}")
-            },
-            onSuccess = {
-                android.util.Log.d("MainScreen", "Image loaded successfully")
-            },
-            onError = { error ->
-                android.util.Log.e("MainScreen", "Image load failed: ${error.result.throwable.message}")
+        if (capturedImageUrl != null && !isLastCaptureVisible) {
+            // Display message instead of a black/failed image
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.DarkGray)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Image captured successfully!\n\nHigh-resolution and original copies can be retrieved from your SeeStar image gallery.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    fontWeight = FontWeight.Medium
+                )
             }
-        )
+        } else {
+            AsyncImage(
+                model = capturedImageUrl ?: spiralGalaxyAsset,
+                contentDescription = "Telescope View",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onLoading = {
+                    android.util.Log.d("MainScreen", "Image loading: ${capturedImageUrl ?: "Welcome"}")
+                },
+                onSuccess = {
+                    android.util.Log.d("MainScreen", "Image loaded successfully")
+                },
+                onError = { error ->
+                    android.util.Log.e("MainScreen", "Image load failed: ${error.result.throwable.message}")
+                    if (capturedImageUrl != null) {
+                        onImageError()
+                    }
+                }
+            )
+        }
 
         if (isLoading) {
             Box(
@@ -748,7 +779,7 @@ fun LiveViewContent(
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Text(
-                text = if (capturedImageUrl != null) "IMAGE CAPTURED" else "LIVE VIEW",
+                text = if (capturedImageUrl != null) "IMAGE CAPTURED" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White
             )
@@ -775,66 +806,77 @@ fun AssistantStatusContent(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         )
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.Top
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
         ) {
-            Column(modifier = Modifier.weight(0.6f)) {
-                Text(
-                    text = "Voice Assistant Status",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = when {
-                        isLoading -> "Initializing models..."
-                        requireWakeWord -> "Listening for 'SeeStar'..."
-                        else -> "Listening for commands..."
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = if (requireWakeWord) "(Say 'SeeStar' + command)" else "(Say command directly)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                )
-            }
-            
-            // Assistant Responses Area
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 16.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Assistant Responses",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(assistantResponses) { response ->
-                        Text(
-                            text = "• $response",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Voice Assistant Status",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = when {
+                            isLoading -> "Initializing models..."
+                            requireWakeWord -> "Listening for 'SeeStar'..."
+                            else -> "Listening for commands..."
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = if (requireWakeWord) "(Say 'SeeStar' + command)" else "(Say command directly)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                }
+                
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 3.dp
+                    )
                 }
             }
 
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.dp
-                )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
+            )
+
+            Text(
+                text = "Assistant Responses",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+            ) {
+                items(assistantResponses) { response ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "• $response",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
             }
         }
     }

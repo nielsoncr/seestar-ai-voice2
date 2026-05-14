@@ -347,13 +347,14 @@ class TelescopeController(
                 onProgress("Checking image status (Attempt $attempts/$maxAttempts)...")
                 sendCommand(ip, "camera/0/imageready", "GET", emptyMap(), { response ->
                     try {
-                        val ready = org.json.JSONObject(response).getBoolean("Value")
+                        val json = org.json.JSONObject(response)
+                        val ready = json.optBoolean("Value", false)
+                        
                         if (ready) {
                             onProgress("Image is ready! Retrieving...")
-                            // Note: Alpaca imagearray returns raw data. 
-                            // Some SeeStar bridges provide a direct preview at /camera/0/image.jpg
-                            // or /camera/0/image.png. We'll try the more common 'image' path first.
+                            // Try common SeeStar Alpaca image endpoints
                             val timestamp = System.currentTimeMillis()
+                            // Endpoint 1: Standard preview image
                             val imageUrl = "http://$ip:$port/api/v1/camera/0/image?t=$timestamp"
                             onReady(imageUrl)
                         } else if (attempts < maxAttempts) {
@@ -364,7 +365,7 @@ class TelescopeController(
                             onError(timeoutMsg)
                         }
                     } catch (e: Exception) {
-                        onError("Error checking camera status: ${e.message}")
+                        onError("Error parsing camera status: ${e.message}")
                     }
                 }, { error ->
                     onError(error)
